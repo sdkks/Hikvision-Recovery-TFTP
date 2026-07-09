@@ -65,6 +65,7 @@ This tool is designed to work with all Hikvision/HiWatch IP cameras that utilize
    
 - **HiWatch DS-I400(D)**
 - **HiWatch DS-I450L(C)**
+- **Hikvision DS-2CD2043G2-I(U)**
 
 *Don't see your camera on the list? It will likely work if your device uses the standard Hikvision bootloader.*
 </details>
