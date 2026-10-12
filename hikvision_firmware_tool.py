@@ -55,7 +55,7 @@ import urllib.request
 
 # Hikvision recovery network expectations
 SERVER_IPS = ("192.168.1.128", "192.0.0.128")  # PC must own one of these
-CAMERA_IPS = ("192.168.1.64", "192.0.0.64")    # bootloader's default client IPs
+CAMERA_IPS = ("192.168.1.64", "192.0.0.64")  # bootloader's default client IPs
 FIRMWARE_NAME = "digicap.dav"
 
 # TFTP constants (mirror TftpServer.cs)
@@ -80,7 +80,12 @@ def _use_color() -> bool:
 
 if _use_color():
     C_GREEN, C_YELLOW, C_RED, C_CYAN, C_WHITE, C_RESET = (
-        "\033[32m", "\033[33m", "\033[31m", "\033[36m", "\033[37m", "\033[0m",
+        "\033[32m",
+        "\033[33m",
+        "\033[31m",
+        "\033[36m",
+        "\033[37m",
+        "\033[0m",
     )
 else:
     C_GREEN = C_YELLOW = C_RED = C_CYAN = C_WHITE = C_RESET = ""
@@ -132,8 +137,9 @@ def list_ipv4_addresses() -> list[str]:
     addrs: list[str] = []
     for cmd in (["ip", "-4", "-o", "addr"], ["ifconfig", "-a"]):
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True,
-                                 timeout=5, check=False).stdout
+            out = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=5, check=False
+            ).stdout
             for m in re.finditer(r"inet (?:addr:)?(\d+\.\d+\.\d+\.\d+)", out):
                 ip = m.group(1)
                 if ip != "127.0.0.1" and ip not in addrs:
@@ -152,7 +158,7 @@ class HikvisionRecoveryServer:
         self.handshake_port = handshake_port
         self.stop_event = threading.Event()
         self._lock = threading.Lock()
-        self._active: set[str] = set()          # client IPs with transfer in flight
+        self._active: set[str] = set()  # client IPs with transfer in flight
         self._recently_flashed: dict[str, float] = {}  # client IP -> monotonic time
         self._tftp_sock: socket.socket | None = None
         self._handshake_sock: socket.socket | None = None
@@ -163,7 +169,9 @@ class HikvisionRecoveryServer:
         self._tftp_sock = self._bind_udp(self.tftp_port)
         self._handshake_sock = self._bind_udp(self.handshake_port)
         log_info(f"TFTP Server started on port {self.tftp_port}.")
-        log_handshake(f"Handshake listener (SWKH) active on port {self.handshake_port}.")
+        log_handshake(
+            f"Handshake listener (SWKH) active on port {self.handshake_port}."
+        )
         log_info("Waiting for camera... TURN ON CAMERA POWER NOW!")
         for target in (self._listen_tftp, self._listen_handshake, self._cleanup_loop):
             threading.Thread(target=target, daemon=True).start()
@@ -212,8 +220,9 @@ class HikvisionRecoveryServer:
                 data, addr = self._tftp_sock.recvfrom(2048)
             except OSError:
                 break  # socket closed during shutdown
-            threading.Thread(target=self._handle_request, args=(data, addr),
-                             daemon=True).start()
+            threading.Thread(
+                target=self._handle_request, args=(data, addr), daemon=True
+            ).start()
 
     def _listen_handshake(self) -> None:
         assert self._handshake_sock is not None
@@ -231,9 +240,12 @@ class HikvisionRecoveryServer:
                         log_handshake(
                             f"[SWKH] Knock from {client_ip} detected, but ignored (recently flashed).\n"
                             f"Wait 10-20 seconds, then power cycle the camera. "
-                            f"It should then boot up with its default IP address.")
+                            f"It should then boot up with its default IP address."
+                        )
                     else:
-                        log_handshake(f"[SWKH] Knock detected from {client_ip}. Echo sent.")
+                        log_handshake(
+                            f"[SWKH] Knock detected from {client_ip}. Echo sent."
+                        )
                         self._handshake_sock.sendto(data, addr)
             except OSError:
                 continue
@@ -242,8 +254,11 @@ class HikvisionRecoveryServer:
         while not self.stop_event.wait(CLEANUP_SECS):
             now = time.monotonic()
             with self._lock:
-                expired = [ip for ip, t in self._recently_flashed.items()
-                           if now - t > BLACKLIST_SECS]
+                expired = [
+                    ip
+                    for ip, t in self._recently_flashed.items()
+                    if now - t > BLACKLIST_SECS
+                ]
                 for ip in expired:
                     del self._recently_flashed[ip]
             for ip in expired:
@@ -272,21 +287,24 @@ class HikvisionRecoveryServer:
                 log_warning(
                     f"[TFTP] File request from {client_ip} ignored (recently flashed).\n"
                     f"Wait 10-20 seconds, then power cycle the camera. "
-                    f"It should then boot up with its default IP address.")
+                    f"It should then boot up with its default IP address."
+                )
                 return
 
             log_info(f"[TFTP] Camera {addr[0]}:{addr[1]} requested file: '{filename}'")
             file_path = self._resolve_path(filename)
             if file_path is None or not os.path.isfile(file_path):
                 log_warning(
-                    f"[TFTP] File '{filename}' not found. Replying error code to redirect camera.")
+                    f"[TFTP] File '{filename}' not found. Replying error code to redirect camera."
+                )
                 self._send_error(addr, 0, "No such file or directory")
                 return
 
             with self._lock:
                 self._active.add(client_ip)
-            threading.Thread(target=self._run_session,
-                             args=(file_path, addr, client_ip), daemon=True).start()
+            threading.Thread(
+                target=self._run_session, args=(file_path, addr, client_ip), daemon=True
+            ).start()
         except Exception as exc:  # never let the listener thread die
             log_error(f"Critical error in TFTP handler: {exc}")
 
@@ -303,28 +321,42 @@ class HikvisionRecoveryServer:
     def _send_error(self, addr: tuple[str, int], code: int, message: str) -> None:
         # Fresh ephemeral socket, same as the C# implementation — the camera
         # accepts the redirect error from a different source port.
-        payload = b"\x00\x05" + code.to_bytes(2, "big") + message.encode("ascii") + b"\x00"
+        payload = (
+            b"\x00\x05" + code.to_bytes(2, "big") + message.encode("ascii") + b"\x00"
+        )
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.sendto(payload, addr)
         except OSError:
             pass
 
-    def _run_session(self, file_path: str, addr: tuple[str, int], client_ip: str) -> None:
+    @staticmethod
+    def _next_block(block: int) -> int:
+        """16-bit TFTP block counter wrap: 65535 -> 0 (RFC 1350 rollover).
+
+        This wrap is what makes firmware files larger than ~32 MB possible.
+        """
+        return (block + 1) & 0xFFFF
+
+    def _run_session(
+        self, file_path: str, addr: tuple[str, int], client_ip: str
+    ) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             with open(file_path, "rb") as fh:
                 file_bytes = fh.read()
             total = len(file_bytes)
             name = os.path.basename(file_path)
-            log_info(f"[{addr[0]}] Uploading '{name}' ({total / 1024 / 1024:.2f} MB)...")
+            log_info(
+                f"[{addr[0]}] Uploading '{name}' ({total / 1024 / 1024:.2f} MB)..."
+            )
             started = time.monotonic()
             last_percent = -1
             offset = 0
             block = 1
             sock.settimeout(ACK_TIMEOUT)
             while offset < total:
-                chunk = file_bytes[offset:offset + BLOCK_SIZE]
+                chunk = file_bytes[offset : offset + BLOCK_SIZE]
                 packet = b"\x00\x03" + block.to_bytes(2, "big") + chunk
                 retries = 0
                 while True:
@@ -336,7 +368,9 @@ class HikvisionRecoveryServer:
                         if retries >= MAX_RETRIES:
                             with _print_lock:
                                 print()
-                            log_error(f"[{addr[0]}] No ACK on block {block}. Transfer failed.")
+                            log_error(
+                                f"[{addr[0]}] No ACK on block {block}. Transfer failed."
+                            )
                             return
                         continue
                     if len(buf) >= 4 and buf[0] == 0 and buf[1] == OP_ACK:
@@ -349,14 +383,16 @@ class HikvisionRecoveryServer:
                 if percent != last_percent or offset >= total:
                     last_percent = percent
                     self._draw_progress(addr[0], percent, offset, total)
-                block = (block + 1) & 0xFFFF  # 16-bit wrap: >32MB firmware support
+                block = self._next_block(block)
 
             elapsed = time.monotonic() - started
             speed = (total / 1024 / 1024) / elapsed if elapsed > 0 else 0.0
             with _print_lock:
                 print()
-            log_info(f"[{addr[0]}] Success: '{name}' uploaded in {elapsed:.1f}s! "
-                     f"Speed: {speed:.2f} MB/s")
+            log_info(
+                f"[{addr[0]}] Success: '{name}' uploaded in {elapsed:.1f}s! "
+                f"Speed: {speed:.2f} MB/s"
+            )
         except Exception as exc:
             with _print_lock:
                 print()
@@ -377,7 +413,8 @@ class HikvisionRecoveryServer:
         with _print_lock:
             sys.stdout.write(
                 f"\r[{ip}] Progress: [{bar}] {percent}% "
-                f"({sent // 1024} KB / {total // 1024} KB)")
+                f"({sent // 1024} KB / {total // 1024} KB)"
+            )
             sys.stdout.flush()
 
 
@@ -399,8 +436,9 @@ def xml_field(xml: str, tag: str) -> str | None:
     return m.group(1) if m else None
 
 
-def camera_opener(host: str, user: str, password: str
-                  ) -> tuple[urllib.request.OpenerDirector, str]:
+def camera_opener(
+    host: str, user: str, password: str
+) -> tuple[urllib.request.OpenerDirector, str]:
     base = f"http://{host}"
     mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
     mgr.add_password(None, base, user, password)
@@ -423,19 +461,26 @@ def _md5_hex(text: str) -> str:
 
 
 def _parse_www_auth(header: str) -> dict[str, str]:
-    rest = header.strip()[len("Digest"):].strip() \
-        if header.strip().lower().startswith("digest") else header.strip()
+    rest = (
+        header.strip()[len("Digest") :].strip()
+        if header.strip().lower().startswith("digest")
+        else header.strip()
+    )
     params: dict[str, str] = {}
     for m in re.finditer(r'([A-Za-z]+)\s*=\s*(?:"([^"]*)"|([^\s,]+))', rest):
-        params[m.group(1).lower()] = m.group(2) if m.group(2) is not None else m.group(3)
+        params[m.group(1).lower()] = (
+            m.group(2) if m.group(2) is not None else m.group(3)
+        )
     return params
 
 
-def digest_authorization(method: str, uri: str, user: str, password: str,
-                         challenge: str) -> str:
+def digest_authorization(
+    method: str, uri: str, user: str, password: str, challenge: str
+) -> str:
     p = _parse_www_auth(challenge)
     realm, nonce = p.get("realm", ""), p.get("nonce", "")
-    qop = p.get("qop", "")
+    offered = [q.strip() for q in p.get("qop", "").split(",") if q.strip()]
+    qop = "auth" if "auth" in offered else (offered[0] if offered else "")
     algorithm = p.get("algorithm", "MD5")
     cnonce = _md5_hex(os.urandom(16).hex() + str(time.time()))
     nc = "00000001"
@@ -443,13 +488,17 @@ def digest_authorization(method: str, uri: str, user: str, password: str,
     ha2 = _md5_hex(f"{method}:{uri}")
     if "auth" in qop:
         response = _md5_hex(f"{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}")
-        fields = (f'username="{user}", realm="{realm}", nonce="{nonce}", uri="{uri}", '
-                  f'cnonce="{cnonce}", nc={nc}, qop={qop}, response="{response}", '
-                  f'algorithm={algorithm}')
+        fields = (
+            f'username="{user}", realm="{realm}", nonce="{nonce}", uri="{uri}", '
+            f'cnonce="{cnonce}", nc={nc}, qop={qop}, response="{response}", '
+            f"algorithm={algorithm}"
+        )
     else:
         response = _md5_hex(f"{ha1}:{nonce}:{ha2}")
-        fields = (f'username="{user}", realm="{realm}", nonce="{nonce}", uri="{uri}", '
-                  f'response="{response}", algorithm={algorithm}')
+        fields = (
+            f'username="{user}", realm="{realm}", nonce="{nonce}", uri="{uri}", '
+            f'response="{response}", algorithm={algorithm}'
+        )
     if "opaque" in p:
         fields += f', opaque="{p["opaque"]}"'
     return f"Digest {fields}"
@@ -477,8 +526,9 @@ def isapi_reboot(host: str, user: str, password: str) -> tuple[int, str]:
     auth = digest_authorization("PUT", uri, user, password, challenge)
     conn = http.client.HTTPConnection(host, timeout=30)
     try:
-        conn.request("PUT", uri, body=b"", headers={
-            "Authorization": auth, "Content-Length": "0"})
+        conn.request(
+            "PUT", uri, body=b"", headers={"Authorization": auth, "Content-Length": "0"}
+        )
         resp = conn.getresponse()
         return resp.status, resp.read().decode("utf-8", errors="replace")
     except (OSError, http.client.HTTPException) as exc:
@@ -487,8 +537,9 @@ def isapi_reboot(host: str, user: str, password: str) -> tuple[int, str]:
         conn.close()
 
 
-def poll_until_back_online(opener: urllib.request.OpenerDirector, base: str,
-                           previous_fw: str, minutes: int = 8) -> None:
+def poll_until_back_online(
+    opener: urllib.request.OpenerDirector, base: str, previous_fw: str, minutes: int = 8
+) -> None:
     print("Polling until the camera comes back online (typical: 2-5 minutes)...")
     deadline = time.monotonic() + minutes * 60
     while time.monotonic() < deadline:
@@ -503,15 +554,20 @@ def poll_until_back_online(opener: urllib.request.OpenerDirector, base: str,
         if new_fw != previous_fw:
             print(f"{C_GREEN}Camera is back online. Firmware now: {new_fw}{C_RESET}")
         else:
-            print(f"{C_YELLOW}Camera is back online but still reports {new_fw}. If the web UI is "
-                  f"fixed, the flash worked anyway; otherwise re-run the push once.{C_RESET}")
+            print(
+                f"{C_YELLOW}Camera is back online but still reports {new_fw}. If the web UI is "
+                f"fixed, the flash worked anyway; otherwise re-run the push once.{C_RESET}"
+            )
         return
-    print(f"{C_YELLOW}Camera did not respond within {minutes} minutes. Check SADP / your router,\n"
-          f"or use bootloader TFTP recovery mode (sudo python3 {os.path.basename(sys.argv[0])}).{C_RESET}")
+    print(
+        f"{C_YELLOW}Camera did not respond within {minutes} minutes. Check SADP / your router,\n"
+        f"or use bootloader TFTP recovery mode (sudo python3 {os.path.basename(sys.argv[0])}).{C_RESET}"
+    )
 
 
-def put_firmware_digest(host: str, user: str, password: str, payload: bytes,
-                        timeout: float = 600.0) -> tuple[int, str]:
+def put_firmware_digest(
+    host: str, user: str, password: str, payload: bytes, timeout: float = 600.0
+) -> tuple[int, str]:
     """Two-phase Digest PUT of the firmware; returns (http_status, body)."""
     uri = UPGRADE_ENDPOINT
     # Phase 1: headers only -> collect the 401 challenge.
@@ -547,7 +603,7 @@ def put_firmware_digest(host: str, user: str, password: str, payload: bytes,
         sent = 0
         try:
             for off in range(0, total, UPLOAD_CHUNK):
-                conn.send(payload[off:off + UPLOAD_CHUNK])
+                conn.send(payload[off : off + UPLOAD_CHUNK])
                 sent = min(off + UPLOAD_CHUNK, total)
                 _upload_progress(sent, total)
         except (BrokenPipeError, ConnectionResetError) as exc:
@@ -583,8 +639,14 @@ def fetch_device_info(opener: urllib.request.OpenerDirector, base: str) -> str:
 
 
 def print_device_info(xml: str) -> None:
-    for tag in ("deviceName", "model", "serialNumber", "firmwareVersion",
-                "ipAddress", "macAddress"):
+    for tag in (
+        "deviceName",
+        "model",
+        "serialNumber",
+        "firmwareVersion",
+        "ipAddress",
+        "macAddress",
+    ):
         val = xml_field(xml, tag)
         if val:
             print(f"  {tag}: {val}")
@@ -594,7 +656,9 @@ def resolve_camera_host(raw: str | None) -> str:
     host = raw or os.environ.get("HIK_HOST") or ""
     host = host.removeprefix("http://").removeprefix("https://").rstrip("/")
     if not host:
-        raise SystemExit("No camera host given. Pass it as an argument or set HIK_HOST.")
+        raise SystemExit(
+            "No camera host given. Pass it as an argument or set HIK_HOST."
+        )
     return host
 
 
@@ -604,7 +668,8 @@ def resolve_camera_password(args: argparse.Namespace, user: str, host: str) -> s
         if not sys.stdin.isatty():
             raise SystemExit(
                 "No password available. Set --password, or the HIK_PASS env var "
-                "(non-interactive sessions cannot prompt).")
+                "(non-interactive sessions cannot prompt)."
+            )
         password = getpass.getpass(f"Camera password for {user}@{host}: ")
     return password
 
@@ -619,8 +684,10 @@ def run_camera_command(args: argparse.Namespace) -> None:
         info_xml = fetch_device_info(opener, base)
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
-            print(f"{C_RED}Authentication failed for {user}@{host} (HTTP 401). "
-                  f"Check --user/--password or HIK_USER/HIK_PASS.{C_RESET}")
+            print(
+                f"{C_RED}Authentication failed for {user}@{host} (HTTP 401). "
+                f"Check --user/--password or HIK_USER/HIK_PASS.{C_RESET}"
+            )
         else:
             print(f"{C_RED}HTTP {exc.code} from camera: {exc.reason}{C_RESET}")
         raise SystemExit(1)
@@ -636,20 +703,28 @@ def run_camera_command(args: argparse.Namespace) -> None:
     # ---- push: upload digicap.dav to the running camera ----
     firmware = getattr(args, "firmware", None) or os.path.join(args.dir, FIRMWARE_NAME)
     if not os.path.isfile(firmware):
-        print(f"{C_RED}Firmware not found: {firmware}\n"
-              f"Pass --firmware /path/to/digicap.dav or place it next to this script.{C_RESET}")
+        print(
+            f"{C_RED}Firmware not found: {firmware}\n"
+            f"Pass --firmware /path/to/digicap.dav or place it next to this script.{C_RESET}"
+        )
         raise SystemExit(1)
     size_mb = os.path.getsize(firmware) / 1024 / 1024
     model = xml_field(info_xml, "model") or "?"
     cur_fw = xml_field(info_xml, "firmwareVersion") or "?"
 
-    print(f"\nAbout to flash '{os.path.basename(firmware)}' ({size_mb:.2f} MB) "
-          f"to {model} (current firmware {cur_fw}).")
-    print(f"{C_YELLOW}Use the official firmware matching this exact model and region.\n"
-          f"The camera rejects wrong-model files, but NEVER power it off mid-flash.{C_RESET}")
+    print(
+        f"\nAbout to flash '{os.path.basename(firmware)}' ({size_mb:.2f} MB) "
+        f"to {model} (current firmware {cur_fw})."
+    )
+    print(
+        f"{C_YELLOW}Use the official firmware matching this exact model and region.\n"
+        f"The camera rejects wrong-model files, but NEVER power it off mid-flash.{C_RESET}"
+    )
     if not getattr(args, "yes", False):
         if not sys.stdin.isatty():
-            print(f"{C_RED}Confirmation required: rerun with --yes for unattended use.{C_RESET}")
+            print(
+                f"{C_RED}Confirmation required: rerun with --yes for unattended use.{C_RESET}"
+            )
             raise SystemExit(1)
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             print("Aborted.")
@@ -676,23 +751,33 @@ def run_camera_command(args: argparse.Namespace) -> None:
 
     if code == "7":
         # Documented success path: package staged, reboot applies it.
-        print(f"{C_GREEN}Camera accepted and staged the firmware (reboot required). "
-              f"Triggering reboot...{C_RESET}")
+        print(
+            f"{C_GREEN}Camera accepted and staged the firmware (reboot required). "
+            f"Triggering reboot...{C_RESET}"
+        )
         try:
             _, rbody = isapi_reboot(host, user, password)
             rcode = xml_field(rbody, "statusCode")
             if rcode == "1":
-                print(f"{C_GREEN}Reboot triggered. The camera applies the firmware on boot.{C_RESET}")
+                print(
+                    f"{C_GREEN}Reboot triggered. The camera applies the firmware on boot.{C_RESET}"
+                )
             else:
-                print(f"{C_YELLOW}Reboot endpoint answered statusCode={rcode}. If the camera is not "
-                      f"down within a minute, power-cycle it manually — the staged "
-                      f"firmware applies on boot.{C_RESET}")
+                print(
+                    f"{C_YELLOW}Reboot endpoint answered statusCode={rcode}. If the camera is not "
+                    f"down within a minute, power-cycle it manually — the staged "
+                    f"firmware applies on boot.{C_RESET}"
+                )
         except (RuntimeError, OSError, http.client.HTTPException) as exc:
-            print(f"{C_YELLOW}Could not send the reboot command ({exc}).\n"
-                  f"Power-cycle the camera manually — the staged firmware applies on boot.{C_RESET}")
+            print(
+                f"{C_YELLOW}Could not send the reboot command ({exc}).\n"
+                f"Power-cycle the camera manually — the staged firmware applies on boot.{C_RESET}"
+            )
     else:
-        print(f"{C_GREEN}Camera accepted the firmware and is now flashing. "
-              f"Do NOT power it off.{C_RESET}")
+        print(
+            f"{C_GREEN}Camera accepted the firmware and is now flashing. "
+            f"Do NOT power it off.{C_RESET}"
+        )
     poll_until_back_online(opener, base, cur_fw)
 
 
@@ -703,11 +788,14 @@ def _print_upgrade_response(xml: str) -> None:
     if code or status:
         print(f"  statusCode={code} statusString={status} subStatusCode={sub}")
     if sub == "badDevType":
-        print(f"{C_YELLOW}  This firmware is for a different camera model or region.\n"
-              f"  Download the package for exactly this model from the Hikvision portal.{C_RESET}")
+        print(
+            f"{C_YELLOW}  This firmware is for a different camera model or region.\n"
+            f"  Download the package for exactly this model from the Hikvision portal.{C_RESET}"
+        )
 
 
 # ------------------------------------------------------------------ main flow
+
 
 def print_banner() -> None:
     print("=" * 73)
@@ -719,27 +807,41 @@ def print_banner() -> None:
 def check_environment(root_dir: str) -> None:
     target = os.path.join(root_dir, FIRMWARE_NAME)
     if not os.path.isfile(target):
-        print(f"{C_RED}WARNING: File '{FIRMWARE_NAME}' was not found in the application directory!{C_RESET}")
+        print(
+            f"{C_RED}WARNING: File '{FIRMWARE_NAME}' was not found in the application directory!{C_RESET}"
+        )
         print(f"Search directory: {root_dir}")
-        print(f"Please copy the firmware file into this folder and rename it to '{FIRMWARE_NAME}'.")
+        print(
+            f"Please copy the firmware file into this folder and rename it to '{FIRMWARE_NAME}'."
+        )
     else:
         size_mb = os.path.getsize(target) / 1024 / 1024
-        print(f"{C_GREEN}Firmware file detected: {FIRMWARE_NAME} ({size_mb:.2f} MB){C_RESET}")
+        print(
+            f"{C_GREEN}Firmware file detected: {FIRMWARE_NAME} ({size_mb:.2f} MB){C_RESET}"
+        )
 
     print("\nWhich local IP would be used to reach the camera bootloader:")
     match = False
     for camera_ip in CAMERA_IPS:
         src = source_ip_for(camera_ip)
         if src in SERVER_IPS:
-            print(f"{C_GREEN} -> route to {camera_ip} uses {src}  (MATCH! Correct IP for Hikvision recovery){C_RESET}")
+            print(
+                f"{C_GREEN} -> route to {camera_ip} uses {src}  (MATCH! Correct IP for Hikvision recovery){C_RESET}"
+            )
             match = True
         else:
             used = src if src else "no route"
             print(f" - route to {camera_ip} would use: {used}")
     if not match:
-        print(f"{C_YELLOW}\n[WARNING] Neither '{SERVER_IPS[0]}' nor '{SERVER_IPS[1]}' is configured on any active network adapter!")
-        print("Hikvision bootloaders look for a TFTP server at one of these exact IP addresses.")
-        print("Set your network adapter IP statically to 192.168.1.128 or 192.0.0.128 (Subnet Mask: 255.255.255.0).")
+        print(
+            f"{C_YELLOW}\n[WARNING] Neither '{SERVER_IPS[0]}' nor '{SERVER_IPS[1]}' is configured on any active network adapter!"
+        )
+        print(
+            "Hikvision bootloaders look for a TFTP server at one of these exact IP addresses."
+        )
+        print(
+            "Set your network adapter IP statically to 192.168.1.128 or 192.0.0.128 (Subnet Mask: 255.255.255.0)."
+        )
         print("macOS example:  sudo ifconfig en0 alias 192.168.1.128 255.255.255.0")
         print("Linux example:  sudo ip addr add 192.168.1.128/24 dev eth0")
 
@@ -748,13 +850,21 @@ def check_environment(root_dir: str) -> None:
         print("\nAll IPv4 addresses on this machine: " + ", ".join(all_ips))
 
     if sys.platform == "darwin":
-        print("\n[Recommendation] If macOS asks to allow 'python3' to accept incoming network")
-        print("connections, click Allow. If you see SWKH knocks but no replies, check the")
+        print(
+            "\n[Recommendation] If macOS asks to allow 'python3' to accept incoming network"
+        )
+        print(
+            "connections, click Allow. If you see SWKH knocks but no replies, check the"
+        )
         print("application firewall (System Settings > Network > Firewall).")
     elif sys.platform == "linux":
-        print("\n[Recommendation] Ensure your firewall (ufw/firewalld) allows incoming UDP on ports 69 and 9978.")
+        print(
+            "\n[Recommendation] Ensure your firewall (ufw/firewalld) allows incoming UDP on ports 69 and 9978."
+        )
     else:
-        print("\n[Recommendation] Ensure Windows Defender Firewall is TEMPORARILY DISABLED.")
+        print(
+            "\n[Recommendation] Ensure Windows Defender Firewall is TEMPORARILY DISABLED."
+        )
         print("Firewalls commonly block incoming UDP packets on port 69 and 9978.")
     print("=" * 73 + "\n")
 
@@ -769,37 +879,54 @@ def _env_int(name: str, default: int) -> int:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Hikvision firmware tool: ISAPI flash for running cameras "
-                    "(no sudo) + bootloader TFTP recovery server.")
-    parser.add_argument("--dir", default=os.environ.get("HIK_DIR")
-                        or os.path.dirname(os.path.abspath(__file__)),
-                        help="directory containing digicap.dav "
-                             "(default: this script's folder, or HIK_DIR)")
-    parser.add_argument("--tftp-port", type=int, default=None,
-                        help="TFTP UDP port (default 69; env HIK_TFTP_PORT; "
-                             "must stay 69 for real recovery; overridable for testing)")
-    parser.add_argument("--handshake-port", type=int, default=None,
-                        help="SWKH handshake UDP port (default 9978; env HIK_HANDSHAKE_PORT)")
+        "(no sudo) + bootloader TFTP recovery server."
+    )
+    parser.add_argument(
+        "--dir",
+        default=os.environ.get("HIK_DIR") or os.path.dirname(os.path.abspath(__file__)),
+        help="directory containing digicap.dav "
+        "(default: this script's folder, or HIK_DIR)",
+    )
+    parser.add_argument(
+        "--tftp-port",
+        type=int,
+        default=None,
+        help="TFTP UDP port (default 69; env HIK_TFTP_PORT; "
+        "must stay 69 for real recovery; overridable for testing)",
+    )
+    parser.add_argument(
+        "--handshake-port",
+        type=int,
+        default=None,
+        help="SWKH handshake UDP port (default 9978; env HIK_HANDSHAKE_PORT)",
+    )
 
     sub = parser.add_subparsers(dest="command", metavar="command")
 
     def add_auth(p: argparse.ArgumentParser) -> None:
-        p.add_argument("host", nargs="?",
-                       help="camera IP/host (default: env HIK_HOST)")
-        p.add_argument("--user",
-                       help="camera username (default: env HIK_USER or 'admin')")
-        p.add_argument("--password",
-                       help="camera password (default: env HIK_PASS, else prompt)")
+        p.add_argument("host", nargs="?", help="camera IP/host (default: env HIK_HOST)")
+        p.add_argument(
+            "--user", help="camera username (default: env HIK_USER or 'admin')"
+        )
+        p.add_argument(
+            "--password", help="camera password (default: env HIK_PASS, else prompt)"
+        )
 
-    p_info = sub.add_parser("info", help="print camera model/firmware via ISAPI (no sudo)")
+    p_info = sub.add_parser(
+        "info", help="print camera model/firmware via ISAPI (no sudo)"
+    )
     add_auth(p_info)
 
-    p_push = sub.add_parser("push",
-                            help="flash digicap.dav to a RUNNING camera via ISAPI (no sudo)")
+    p_push = sub.add_parser(
+        "push", help="flash digicap.dav to a RUNNING camera via ISAPI (no sudo)"
+    )
     add_auth(p_push)
-    p_push.add_argument("--firmware",
-                        help="path to digicap.dav (default: <dir>/digicap.dav)")
-    p_push.add_argument("--yes", action="store_true",
-                        help="skip the confirmation prompt")
+    p_push.add_argument(
+        "--firmware", help="path to digicap.dav (default: <dir>/digicap.dav)"
+    )
+    p_push.add_argument(
+        "--yes", action="store_true", help="skip the confirmation prompt"
+    )
 
     args = parser.parse_args()
     if args.tftp_port is None:
@@ -825,8 +952,13 @@ def main() -> None:
     root_dir = os.path.abspath(args.dir)
 
     global _logfile
-    _logfile = open(os.path.join(root_dir, "log.txt"), "w", buffering=1,
-                    encoding="utf-8", errors="replace")
+    _logfile = open(
+        os.path.join(root_dir, "log.txt"),
+        "w",
+        buffering=1,
+        encoding="utf-8",
+        errors="replace",
+    )
 
     print_banner()
     check_environment(root_dir)
@@ -839,7 +971,9 @@ def main() -> None:
         return
 
     signal.signal(signal.SIGTERM, lambda *_: server.stop())
-    print(f"{C_WHITE}\nServer is active. You can connect multiple cameras sequentially.")
+    print(
+        f"{C_WHITE}\nServer is active. You can connect multiple cameras sequentially."
+    )
     if sys.stdin.isatty():
         print("Press [ENTER] at any time to stop the server and exit...")
     print(C_RESET, end="")
@@ -854,7 +988,9 @@ def main() -> None:
 
     print(f"{C_YELLOW}\nShutting down server...")
     for i in (3, 2, 1):
-        sys.stdout.write(f"\rClosing network listeners in {i} seconds to let active transfers finish...")
+        sys.stdout.write(
+            f"\rClosing network listeners in {i} seconds to let active transfers finish..."
+        )
         sys.stdout.flush()
         time.sleep(1)
     print()

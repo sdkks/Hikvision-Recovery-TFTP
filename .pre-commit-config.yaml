@@ -1,0 +1,35 @@
+# Install:  pre-commit install          (activates the git hook)
+# Run all:  pre-commit run --all-files
+# Tools:    pre-commit + gitleaks via brew (or pipx); ruff is fetched
+#           automatically by pre-commit into an isolated env.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]   # firmware images never belong in git
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff                 # lint (fixes what it can)
+        args: [--fix]
+      - id: ruff-format          # formatter (black-compatible)
+
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (secret scan of staged changes)
+        entry: gitleaks protect --staged -v
+        language: system
+        pass_filenames: false
+
+      - id: unittest
+        name: unit + loopback integration tests
+        entry: python3 -m unittest discover -s tests
+        language: system
+        pass_filenames: false

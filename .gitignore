@@ -361,3 +361,9 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# Python tool: runtime artifacts and local envs
+__pycache__/
+*.pyc
+.venv/
+log.txt
+digicap.dav

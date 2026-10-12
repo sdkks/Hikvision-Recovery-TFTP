@@ -118,6 +118,20 @@ sudo ip addr add 192.168.1.128/24 dev eth0
 
 ---
 
+## Development
+
+The repo uses [pre-commit](https://pre-commit.com) with ruff (lint + format), gitleaks (secret scanning), and a stdlib `unittest` suite (18 tests: digest-auth RFC vectors, path-traversal guard, TFTP block wrap, and loopback protocol tests against the real server class — no camera or root needed).
+
+```bash
+brew install pre-commit gitleaks   # or pipx install pre-commit; apt install gitleaks
+pre-commit install                 # activates the hook for this repo
+python3 -m unittest discover -s tests -v   # run tests directly
+```
+
+Every commit is then gated on: whitespace/EOL hygiene, large-file guard (>1 MB — firmware never belongs in git), ruff lint + format, `gitleaks protect --staged`, and the test suite.
+
+---
+
 ## License
 
 MIT — see [LICENSE.txt](LICENSE.txt). Based on Den34DK's Hikvision-Recovery-TFTP; the Hikvision `SWKH` recovery protocol details come from that project's research.
