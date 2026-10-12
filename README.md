@@ -1,5 +1,7 @@
 # Hikvision Custom Recovery TFTP Server
 
+# WIP - I will be porting this to something more crossplatform. Rtd hikvision engineers cannot make a software that can self-update, proper cross-platform web ui or update tool.
+
 [![.NET 8.0](https://img.shields.io/badge/.NET-8.0-blueviolet.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
 [![Language: C#](https://img.shields.io/badge/Language-C%23-green.svg)]()
 [![Native AOT](https://img.shields.io/badge/Native_AOT-Supported-success.svg)](#native-aot-compilation)
